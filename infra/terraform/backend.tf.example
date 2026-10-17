@@ -1,0 +1,13 @@
+# Optional: remote state so a terminated bastion does not orphan the lab.
+# 1. aws s3api create-bucket --bucket <unique-bucket> --region us-east-1
+# 2. aws s3api put-bucket-versioning --bucket <unique-bucket> --versioning-configuration Status=Enabled
+# 3. cp backend.tf.example backend.tf && edit bucket, then: terraform init -migrate-state
+terraform {
+  backend "s3" {
+    bucket       = "CHANGE-ME-istio-gateway-lab-tfstate"
+    key          = "istio-gateway-lab/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
