@@ -1,0 +1,35 @@
+# Ambient L7: ztunnel is L4-only. HTTP-aware policy needs a WAYPOINT (an Envoy per namespace
+# or per service), and the destination must be told to use it (istio.io/use-waypoint).
+# Equivalent CLI:  istioctl waypoint apply -n ambient-lab --enroll-namespace --wait
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: ambient-lab
+  labels:
+    istio.io/waypoint-for: service
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+---
+# L7 DENY bound to the Service via targetRefs -> enforced BY THE WAYPOINT.
+# (If you used `selector:` instead, ztunnel would be the enforcement point; ztunnel cannot
+#  read HTTP paths, so it "fails safe" and the rule turns into a DENY of ALL traffic.)
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-forbidden-path
+  namespace: ambient-lab
+spec:
+  targetRefs:
+    - kind: Service
+      group: ""
+      name: httpbin
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/forbidden", "/forbidden/*"]

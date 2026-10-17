@@ -1,0 +1,95 @@
+# shop.<DOMAIN> - every routing technique on ONE hostname.
+#
+# How Gateway API picks a rule (NOT top-to-bottom like nginx!):
+#   1. longest path match (Exact beats Prefix; longer prefix beats shorter)
+#   2. then the rule with the MOST header matches
+#   3. then the rule with the MOST query-param matches
+#   4. tie across Routes -> the OLDEST HTTPRoute wins; tie inside one Route -> first rule
+# Every rule stamps a response header  x-lab-rule: <name>  so you can SEE which rule matched:
+#   curl -sI https://shop.<DOMAIN>/ | grep -i x-lab-rule
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: shop
+  namespace: lab-apps
+  labels:
+    lab.io/route: shop
+spec:
+  parentRefs:
+    - name: edge
+      namespace: lab-gateway
+      sectionName: http
+  hostnames:
+    - ${SHOP_HOST}
+  rules:
+    # ---------------------------------------------------------------- PATH -> other service
+    # https://shop.<DOMAIN>/httpbin/headers  ->  httpbin  GET /headers
+    - name: path-httpbin
+      matches:
+        - path: { type: PathPrefix, value: /httpbin }
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: / }
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: path-httpbin }]
+      backendRefs:
+        - { name: httpbin, port: 8000 }
+
+    # ---------------------------------------------------------------- PATH -> pinned version
+    # https://shop.<DOMAIN>/v2  ->  podinfo-v2  GET /
+    - name: path-v2
+      matches:
+        - path: { type: PathPrefix, value: /v2 }
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: / }
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: path-v2 }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }
+
+    # ---------------------------------------------------------------- HEADER
+    # curl -H 'x-canary: true' https://shop.<DOMAIN>/   (header NAME is case-insensitive,
+    # header VALUE with type Exact is case-SENSITIVE: "True" does not match)
+    - name: header-canary
+      matches:
+        - path: { type: PathPrefix, value: / }
+          headers:
+            - { type: Exact, name: x-canary, value: "true" }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: header-canary }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }
+
+    # ---------------------------------------------------------------- QUERY PARAM
+    # https://shop.<DOMAIN>/api/info?version=v2
+    - name: query-canary
+      matches:
+        - path: { type: PathPrefix, value: / }
+          queryParams:
+            - { type: Exact, name: version, value: v2 }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: query-canary }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }
+
+    # ---------------------------------------------------------------- WEIGHTED CANARY (default)
+    # tools/canary.sh 50 50   re-renders this rule with new weights
+    - name: weighted
+      matches:
+        - path: { type: PathPrefix, value: / }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: weighted }]
+      backendRefs:
+        - { name: podinfo-v1, port: 80, weight: ${CANARY_V1_WEIGHT} }
+        - { name: podinfo-v2, port: 80, weight: ${CANARY_V2_WEIGHT} }

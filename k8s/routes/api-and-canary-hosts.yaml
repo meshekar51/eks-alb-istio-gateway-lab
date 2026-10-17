@@ -1,0 +1,49 @@
+# HOST-BASED routing: same ALB, same gateway, same listener - the Host header decides.
+#   api.<DOMAIN>     -> httpbin
+#   canary.<DOMAIN>  -> podinfo-v2 only (browser-friendly canary preview: the podinfo UI's
+#                       follow-up XHR to /api/info stays on the same host, so it stays on v2)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api
+  namespace: lab-apps
+  labels:
+    lab.io/route: api
+spec:
+  parentRefs:
+    - name: edge
+      namespace: lab-gateway
+      sectionName: http
+  hostnames:
+    - ${API_HOST}
+  rules:
+    - name: api-host
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: api-host }]
+      backendRefs:
+        - { name: httpbin, port: 8000 }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: canary-preview
+  namespace: lab-apps
+  labels:
+    lab.io/route: canary-preview
+spec:
+  parentRefs:
+    - name: edge
+      namespace: lab-gateway
+      sectionName: http
+  hostnames:
+    - ${CANARY_HOST}
+  rules:
+    - name: canary-host
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: canary-host }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }

@@ -1,0 +1,44 @@
+# AWS ALB in front of the Istio edge gateway.
+#
+#  Browser --HTTPS(ACM cert)--> ALB --HTTP:80--> edge-istio pod IPs (target-type ip)
+#  HTTP:80 on the ALB only redirects to HTTPS:443.
+#  Health check: Istio's status port 15021 /healthz/ready (NOT port 80: the gateway returns
+#  404 for "/" without a matching Host, which would mark every target unhealthy).
+#  ExternalDNS publishes the hostnames below as Route 53 ALIAS records -> this ALB.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: edge-alb
+  namespace: lab-gateway
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: ${CLUSTER_NAME}-edge
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ip-address-type: ipv4
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-port: "15021"
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz/ready
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    alb.ingress.kubernetes.io/tags: Project=${CLUSTER_NAME},Component=edge-alb
+    external-dns.alpha.kubernetes.io/hostname: ${SHOP_HOST},${API_HOST},${CANARY_HOST},reviews.${DOMAIN}
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: edge-istio        # <gateway name>-<gatewayclass name>, created by istiod
+                port:
+                  number: 80

@@ -1,0 +1,69 @@
+# (messy) shop route as "someone" last edited it
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: shop
+  namespace: lab-apps
+  labels:
+    lab.io/route: shop
+spec:
+  parentRefs:
+    - name: edge
+      namespace: lab-gateway
+      sectionName: http
+  hostnames:
+    - ${SHOP_HOST}
+  rules:
+    - name: path-httpbin
+      matches:
+        - path: { type: PathPrefix, value: /httpbin }
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: / }
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: path-httpbin }]
+      backendRefs:
+        - { name: httpbin, port: 8000 }
+    - name: path-v2
+      matches:
+        - path: { type: PathPrefix, value: /v2 }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: path-v2 }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }
+    - name: header-canary
+      matches:
+        - path: { type: PathPrefix, value: / }
+          headers:
+            - { type: Exact, name: x-canery, value: "true" }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: header-canary }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }
+    - name: query-canary
+      matches:
+        - path: { type: PathPrefix, value: / }
+          queryParams:
+            - { type: Exact, name: version, value: v2 }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: query-canary }]
+      backendRefs:
+        - { name: podinfo-v2, port: 80 }
+    - name: weighted
+      matches:
+        - path: { type: PathPrefix, value: / }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: weighted }]
+      backendRefs:
+        - { name: podinfo-v1, port: 80, weight: 90 }
+        - { name: podinfo-v2, port: 80, weight: 10 }

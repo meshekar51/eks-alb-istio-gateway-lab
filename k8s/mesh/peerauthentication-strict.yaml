@@ -1,0 +1,21 @@
+# STRICT = the server side refuses anything that is not Istio mTLS.
+#   sidecar-lab: enforced by the server's Envoy sidecar (inbound listener)
+#   ambient-lab: enforced by the destination node's ztunnel
+# Not applied by default - tests/40-mtls.sh applies it, so you can observe PERMISSIVE first.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: sidecar-lab
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: ambient-lab
+spec:
+  mtls:
+    mode: STRICT

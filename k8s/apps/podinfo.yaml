@@ -1,0 +1,107 @@
+# podinfo (github.com/stefanprodan/podinfo) - the reference app used by Flagger/Argo Rollouts
+# canary demos. v1 and v2 are two REAL releases of the app, each with its own colour so the
+# browser shows which version answered:
+#   v1 = podinfo 6.14.1  blue   "STABLE v1"
+#   v2 = podinfo 6.15.0  green  "CANARY v2"
+# curl  -> JSON {"hostname","version","message","color",...}
+# browser (User-Agent Mozilla) -> UI, which then XHRs /api/info
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: podinfo
+  namespace: lab-apps
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo-v1
+  namespace: lab-apps
+  labels: { app: podinfo, version: v1 }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: podinfo, version: v1 }
+  template:
+    metadata:
+      labels: { app: podinfo, version: v1 }
+    spec:
+      serviceAccountName: podinfo
+      containers:
+        - name: podinfo
+          image: ${PODINFO_V1_IMAGE}
+          command:
+            - ./podinfo
+            - --port=9898
+            - --level=info
+            - --ui-color=#1f6feb
+            - --ui-message=STABLE v1
+          ports:
+            - { name: http, containerPort: 9898 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9898 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 9898 }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo-v2
+  namespace: lab-apps
+  labels: { app: podinfo, version: v2 }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: podinfo, version: v2 }
+  template:
+    metadata:
+      labels: { app: podinfo, version: v2 }
+    spec:
+      serviceAccountName: podinfo
+      containers:
+        - name: podinfo
+          image: ${PODINFO_V2_IMAGE}
+          command:
+            - ./podinfo
+            - --port=9898
+            - --level=info
+            - --ui-color=#2ea043
+            - --ui-message=CANARY v2
+          ports:
+            - { name: http, containerPort: 9898 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9898 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 9898 }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+# One Service PER VERSION: Gateway API weights split between Services (backendRefs),
+# so each version needs its own Service. Service port 80 != container port 9898 on
+# purpose - backendRefs.port is ALWAYS the SERVICE port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo-v1
+  namespace: lab-apps
+  labels: { app: podinfo, version: v1 }
+spec:
+  selector: { app: podinfo, version: v1 }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo-v2
+  namespace: lab-apps
+  labels: { app: podinfo, version: v2 }
+spec:
+  selector: { app: podinfo, version: v2 }
+  ports:
+    - { name: http, port: 80, targetPort: http }

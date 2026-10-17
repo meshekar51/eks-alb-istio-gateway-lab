@@ -1,0 +1,45 @@
+# The Istio edge gateway, declared with the Kubernetes Gateway API.
+# istiod sees gatewayClassName: istio and AUTO-DEPLOYS:
+#   Deployment  lab-gateway/edge-istio   (Envoy)
+#   Service     lab-gateway/edge-istio   (ports: 15021 status-port, 80 http)
+# The ConfigMap overlay makes that Service ClusterIP (no 2nd AWS load balancer!) and
+# runs 2 replicas. The ALB (k8s/ingress) targets the gateway POD IPs directly.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-gateway-options
+  namespace: lab-gateway
+data:
+  service: |
+    spec:
+      type: ClusterIP
+  deployment: |
+    spec:
+      replicas: 2
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge
+  namespace: lab-gateway
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: edge-gateway-options
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      # Only hostnames under the lab domain can attach to this listener.
+      hostname: "*.${DOMAIN}"
+      allowedRoutes:
+        kinds:
+          - kind: HTTPRoute
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              lab.io/edge-routes: "allowed"

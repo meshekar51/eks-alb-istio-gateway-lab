@@ -1,0 +1,48 @@
+# go-httpbin (same image/ports as Istio's samples/httpbin). Used for:
+#   * host-based routing   api.<DOMAIN>          -> httpbin
+#   * path-based routing   shop.<DOMAIN>/httpbin -> httpbin (URLRewrite strips /httpbin)
+#   * evidence: /headers echoes request headers, incl. X-Forwarded-For from the ALB and
+#     X-Forwarded-Client-Cert (XFCC) added by a server-side SIDECAR when mTLS was used.
+# Service port 8000 -> container 8080 (a classic backendRefs.port trap).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: httpbin
+  namespace: lab-apps
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin
+  namespace: lab-apps
+  labels: { app: httpbin, version: v1 }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: httpbin, version: v1 }
+  template:
+    metadata:
+      labels: { app: httpbin, version: v1 }
+    spec:
+      serviceAccountName: httpbin
+      containers:
+        - name: httpbin
+          image: ${HTTPBIN_IMAGE}
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /status/200, port: 8080 }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  namespace: lab-apps
+  labels: { app: httpbin }
+spec:
+  selector: { app: httpbin }
+  ports:
+    - { name: http, port: 8000, targetPort: 8080 }

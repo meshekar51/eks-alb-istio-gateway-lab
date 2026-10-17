@@ -1,0 +1,188 @@
+# OPTIONAL add-on (make reviews): your exact diagram with Bookinfo's reviews service.
+#
+#   User → ALB → edge-istio (Gateway) → HTTPRoute reviews.<DOMAIN>
+#                                         ├─ 90% → Service reviews-v1 → reviews-v1 Pod
+#                                         └─ 10% → Service reviews-v2 → reviews-v2 Pod ──► ratings
+#
+# Bookinfo ships ONE `reviews` Service + DestinationRule subsets (VirtualService style).
+# Gateway API splits between Services, so here each version gets its own Service.
+# Images = the ones Istio 1.31.2's samples/bookinfo uses.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookinfo
+  labels:
+    istio-injection: enabled
+    lab.io/edge-routes: "allowed"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: bookinfo-reviews, namespace: bookinfo }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: bookinfo-ratings, namespace: bookinfo }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v1
+  namespace: bookinfo
+  labels: { app: reviews, version: v1 }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: reviews, version: v1 }
+  template:
+    metadata:
+      labels: { app: reviews, version: v1 }
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+        - name: reviews
+          image: ${REVIEWS_V1_IMAGE}
+          env:
+            - { name: LOG_DIR, value: /tmp/logs }
+          ports:
+            - { name: http, containerPort: 9080 }
+          readinessProbe:
+            httpGet: { path: /health, port: 9080 }
+            initialDelaySeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: wlp-output, mountPath: /opt/ibm/wlp/output }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: wlp-output, emptyDir: {} }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v2
+  namespace: bookinfo
+  labels: { app: reviews, version: v2 }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: reviews, version: v2 }
+  template:
+    metadata:
+      labels: { app: reviews, version: v2 }
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+        - name: reviews
+          image: ${REVIEWS_V2_IMAGE}
+          env:
+            - { name: LOG_DIR, value: /tmp/logs }
+          ports:
+            - { name: http, containerPort: 9080 }
+          readinessProbe:
+            httpGet: { path: /health, port: 9080 }
+            initialDelaySeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: wlp-output, mountPath: /opt/ibm/wlp/output }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: wlp-output, emptyDir: {} }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratings-v1
+  namespace: bookinfo
+  labels: { app: ratings, version: v1 }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ratings, version: v1 }
+  template:
+    metadata:
+      labels: { app: ratings, version: v1 }
+    spec:
+      serviceAccountName: bookinfo-ratings
+      containers:
+        - name: ratings
+          image: ${RATINGS_IMAGE}
+          ports:
+            - { name: http, containerPort: 9080 }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-v1
+  namespace: bookinfo
+  labels: { app: reviews, version: v1 }
+spec:
+  selector: { app: reviews, version: v1 }
+  ports:
+    - { name: http, port: 9080, targetPort: 9080 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-v2
+  namespace: bookinfo
+  labels: { app: reviews, version: v2 }
+spec:
+  selector: { app: reviews, version: v2 }
+  ports:
+    - { name: http, port: 9080, targetPort: 9080 }
+---
+# reviews-v2 calls http://ratings:9080 (same namespace)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratings
+  namespace: bookinfo
+  labels: { app: ratings }
+spec:
+  selector: { app: ratings }
+  ports:
+    - { name: http, port: 9080, targetPort: 9080 }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: reviews
+  namespace: bookinfo
+spec:
+  parentRefs:
+    - name: edge
+      namespace: lab-gateway
+      sectionName: http
+  hostnames:
+    - reviews.${DOMAIN}
+  rules:
+    # From your istio-guide 02-route-user-header.yaml (VirtualService end-user: jason -> v2)
+    - name: user-jason
+      matches:
+        - headers:
+            - { type: Exact, name: end-user, value: jason }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: reviews-user-jason }]
+      backendRefs:
+        - { name: reviews-v2, port: 9080 }
+    # The diagram: 90% reviews-v1 / 10% reviews-v2
+    - name: weighted
+      matches:
+        - path: { type: PathPrefix, value: / }
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set: [{ name: x-lab-rule, value: reviews-weighted }]
+      backendRefs:
+        - { name: reviews-v1, port: 9080, weight: ${REVIEWS_V1_WEIGHT} }
+        - { name: reviews-v2, port: 9080, weight: ${REVIEWS_V2_WEIGHT} }

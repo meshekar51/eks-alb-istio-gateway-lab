@@ -1,0 +1,19 @@
+# AWS Load Balancer Controller (chart 3.6.0 / app v3.6.0) - rendered by scripts/20-platform.sh
+# region + vpcId are set EXPLICITLY. Never rely on IMDS discovery: a wrong/implicit region is
+# exactly how "InvalidSubnetID.NotFound" / ap-southeast-2 style failures happen.
+clusterName: ${CLUSTER_NAME}
+region: ${AWS_REGION}
+vpcId: ${VPC_ID}
+
+replicaCount: 2
+
+serviceAccount:
+  create: true
+  # MUST match the EKS Pod Identity association (infra/terraform/pod-identity.tf)
+  name: aws-load-balancer-controller
+
+# Ingress class "alb" (IngressClass + IngressClassParams) is created by the chart.
+createIngressClassResource: true
+ingressClass: alb
+
+logLevel: info

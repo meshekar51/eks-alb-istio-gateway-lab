@@ -1,0 +1,22 @@
+# istioctl install -y -f platform/istio/istio-ambient.yaml
+#
+# The "ambient" profile installs: istiod + istio-cni (node agent) + ztunnel (DaemonSet).
+# Sidecar injection keeps working in the same mesh (namespaces labelled istio-injection=enabled),
+# so ONE control plane serves the sidecar-lab AND the ambient-lab namespaces.
+# No classic istio-ingressgateway is installed: the edge gateway is created from a
+# Gateway API `Gateway` (gatewayClassName: istio) in k8s/gateway/.
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: istio-lab
+  namespace: istio-system
+spec:
+  profile: ambient
+  meshConfig:
+    # Envoy access logs on every sidecar / gateway / waypoint.
+    # The RESPONSE_FLAGS field (NR, UH, UF, URX, NC, UAEX ...) is the #1 troubleshooting clue.
+    accessLogFile: /dev/stdout
+    accessLogEncoding: TEXT
+  values:
+    global:
+      logAsJson: false

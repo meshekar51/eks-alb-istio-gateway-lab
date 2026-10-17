@@ -1,0 +1,35 @@
+# ExternalDNS (chart 1.23.0 / app v0.23.0) - rendered by scripts/20-platform.sh
+# Watches the ALB Ingress and creates Route 53 ALIAS records for the hostnames in its
+# external-dns.alpha.kubernetes.io/hostname annotation -> the ALB DNS name.
+provider:
+  name: aws
+
+env:
+  - name: AWS_DEFAULT_REGION
+    value: ${AWS_REGION}
+
+serviceAccount:
+  create: true
+  # MUST match the EKS Pod Identity association (infra/terraform/pod-identity.tf)
+  name: external-dns
+
+# Only Ingress objects. (The gateway-httproute source would publish the Istio gateway's
+# ClusterIP, which is useless publicly - the ALB is the public entry point.)
+sources:
+  - ingress
+
+# sync = create AND delete records this instance owns (TXT ownership registry).
+policy: sync
+registry: txt
+txtOwnerId: ${CLUSTER_NAME}
+
+domainFilters:
+  - ${HOSTED_ZONE}
+
+extraArgs:
+  - --zone-id-filter=${HOSTED_ZONE_ID}
+  - --aws-zone-type=public
+
+interval: 1m
+triggerLoopOnEvent: true
+logLevel: info

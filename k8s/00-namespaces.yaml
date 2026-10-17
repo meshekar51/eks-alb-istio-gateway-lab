@@ -1,0 +1,37 @@
+# Namespaces and their data-plane mode.  One rule: a namespace is EITHER sidecar
+# (istio-injection=enabled) OR ambient (istio.io/dataplane-mode=ambient), never both.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-gateway            # Istio edge Gateway (Envoy) + ALB Ingress live here
+  labels:
+    lab.io/purpose: edge
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-apps               # podinfo v1/v2 + httpbin behind the edge (sidecar mode)
+  labels:
+    istio-injection: enabled
+    lab.io/edge-routes: "allowed"   # the edge Gateway only accepts HTTPRoutes from labelled namespaces
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sidecar-lab            # Goal 2a: mTLS via Envoy sidecars
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ambient-lab            # Goal 2b: mTLS via ztunnel (HBONE) + optional waypoint
+  labels:
+    istio.io/dataplane-mode: ambient
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: legacy-lab             # NOT in the mesh: plaintext clients/servers for negative tests
+  labels:
+    lab.io/purpose: no-mesh
